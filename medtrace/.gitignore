@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Python local/demo files
+backend/*.db
+backend/pubkey.pem
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+
+# Hardhat/local deployment
+chain/deployed.json
+
+# Environment/secrets
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
