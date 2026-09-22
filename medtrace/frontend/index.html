@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MedTrace</title>
+<style>
+  :root { --teal:#0B4F5C; --tint:#E8F3F5; --amber:#FFF1D6; --ink:#1B2A2F; --muted:#4A5D63; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, Segoe UI, Roboto, Arial, sans-serif; color:var(--ink); background:#fff; }
+  header { background:var(--teal); color:#fff; padding:14px 20px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:20px; }
+  header input { padding:6px 8px; border-radius:6px; border:0; }
+  header button { padding:6px 12px; border-radius:6px; border:0; background:#F2A900; cursor:pointer; font-weight:600; }
+  main { padding:16px 20px; max-width:1000px; margin:auto; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+  .card { background:var(--tint); border-radius:10px; padding:12px 14px; }
+  .card b { display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .big { font-size:28px; font-weight:700; }
+  .LOW { color:#1a7f37; } .MEDIUM { color:#b26a00; } .HIGH { color:#c62828; }
+  #verdict { margin:16px 0; padding:16px; border-radius:10px; font-size:22px; font-weight:700; text-align:center; background:#eee; }
+  #verdict.VERIFIED { background:#d7f3dd; color:#14602a; }
+  #verdict.TAMPERED { background:#fddede; color:#9b1c1c; }
+  h2 { font-size:15px; color:var(--teal); margin:20px 0 6px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th { background:var(--teal); color:#fff; text-align:left; padding:6px 8px; }
+  td { padding:5px 8px; border-bottom:1px solid #d7e3e6; word-break:break-all; }
+  ul { margin:4px 0; padding-left:18px; font-size:14px; }
+  .muted { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MedTrace</h1>
+  <label>Box <input id="box" value="BOX-001" size="12"></label>
+  <button id="go">Refresh</button>
+  <button id="verifyBtn">Verify now</button>
+  <span class="muted" style="color:#cfe6ea" id="stamp"></span>
+</header>
+<main>
+  <div id="verdict">Press "Verify now" to check this box against the blockchain</div>
+  <div id="verifyDetail" class="muted"></div>
+
+  <div class="grid">
+    <div class="card"><b>Risk</b><span class="big" id="risk">-</span><div class="muted" id="riskWhy"></div></div>
+    <div class="card"><b>Temperature</b><span class="big" id="temp">-</span><div class="muted" id="range"></div></div>
+    <div class="card"><b>Door / tilt</b><span class="big" id="door">-</span></div>
+    <div class="card"><b>Current custodian</b><span class="big" id="cust" style="font-size:18px">-</span></div>
+  </div>
+
+  <h2>Handovers</h2><table id="handovers"></table>
+  <h2>Temperature excursions (with custodian at that time)</h2><table id="exc"></table>
+  <h2>Latest records</h2><table id="recs"></table>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (ts) => new Date(ts * 1000).toLocaleString();
+const boxId = () => $("box").value.trim();
+
+function fill(table, head, rows) {
+  table.replaceChildren();
+  const tr = document.createElement("tr");
+  head.forEach((h) => { const th = document.createElement("th"); th.textContent = h; tr.appendChild(th); });
+  table.appendChild(tr);
+  if (!rows.length) {
+    const r = document.createElement("tr"), td = document.createElement("td");
+    td.colSpan = head.length; td.textContent = "none"; r.appendChild(td); table.appendChild(r);
+  }
+  rows.forEach((row) => {
+    const r = document.createElement("tr");
+    row.forEach((v) => { const td = document.createElement("td"); td.textContent = v; r.appendChild(td); });
+    table.appendChild(r);
+  });
+}
+
+async function refresh() {
+  const b = encodeURIComponent(boxId());
+  try {
+    const s = await (await fetch(`/api/status/${b}`)).json();
+    if (s.detail) { $("risk").textContent = s.detail; return; }
+    $("risk").textContent = s.level; $("risk").className = "big " + s.level;
+    $("riskWhy").textContent = s.reasons.join("; ") || "no problems found";
+    $("range").textContent = `allowed ${s.range[0]} to ${s.range[1]} °C`;
+    if (s.latest) {
+      $("temp").textContent = s.latest.temp.toFixed(2) + " °C";
+      $("door").textContent = (s.latest.door ? "OPEN" : "closed") + " / " + (s.latest.tilt ? "TILTED" : "flat");
+    }
+    $("cust").textContent = s.current_custodian;
+    fill($("handovers"), ["Time", "From", "To", "Min °C", "Max °C", "Excursions", "Door events"],
+      s.handovers.map((h) => [fmt(h.ts), h.sender, h.receiver, h.min_temp, h.max_temp, h.excursions, h.door_events]));
+    fill($("exc"), ["Time", "Temp °C", "Custodian"], s.excursions.map((e) => [fmt(e.ts), e.temp, e.custodian]));
+    const recs = await (await fetch(`/api/records/${b}?limit=25`)).json();
+    fill($("recs"), ["#", "Time", "Type", "Data", "Hash", "Batch"],
+      recs.map((r) => [r.seq, fmt(r.ts), r.kind, r.data, r.hash.slice(0, 12), r.batch]));
+    $("stamp").textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (e) { $("stamp").textContent = "backend not reachable"; }
+}
+
+async function verify() {
+  const v = $("verdict");
+  v.className = ""; v.textContent = "Checking against the blockchain...";
+  try {
+    const res = await fetch(`/api/verify/${encodeURIComponent(boxId())}`);
+    const d = await res.json();
+    if (d.detail) { v.textContent = d.detail; return; }
+    v.textContent = d.verdict === "VERIFIED" ? "VERIFIED: records match the blockchain" : "TAMPERED: data does not match";
+    v.className = d.verdict;
+    $("verifyDetail").textContent =
+      `${d.records_checked} records, ${d.batches_checked} on-chain batches checked, ${d.pending_records} not yet anchored.` +
+      (d.issues.length ? " Problems: " + d.issues.join(" | ") : "");
+  } catch (e) { v.textContent = "verification failed: backend not reachable"; }
+}
+
+$("go").onclick = refresh;
+$("verifyBtn").onclick = verify;
+const q = new URLSearchParams(location.search);
+if (q.get("box")) $("box").value = q.get("box");
+refresh();
+if (q.get("verify")) verify();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

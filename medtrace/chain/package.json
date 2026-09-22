@@ -1,0 +1,16 @@
+{
+  "name": "medtrace-chain",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "node": "hardhat node",
+    "deploy": "node deploy.js"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0",
+    "solc": "0.8.24"
+  },
+  "devDependencies": {
+    "hardhat": "^2.22.0"
+  }
+}
