@@ -9,6 +9,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <DallasTemperature.h>
+#include <DHT.h>
 #include <HTTPClient.h>
 #include <LittleFS.h>
 #include <MFRC522.h>
@@ -29,6 +30,7 @@ OneWire oneWire(PIN_ONEWIRE);
 DallasTemperature ds(&oneWire);
 Adafruit_SSD1306 oled(128, 64, &Wire, -1);
 RTC_DS3231 rtc;
+DHT dht(PIN_DHT22, DHT22);
 Preferences prefs;
 
 mt::Signer signer;
@@ -45,7 +47,8 @@ bool syncRejected = false;
 
 // ---------- live state ----------
 float lastTemp = NAN;
-bool tempOut = false, doorOpen = false, tilted = false, sensorErr = false;
+float lastHumidity = NAN;
+bool tempOut = false, humidOut = false, doorOpen = false, tilted = false, sensorErr = false;
 float minT = 999, maxT = -999;
 uint16_t excursions = 0, doorEvents = 0;  // counters since the last handover
 uint32_t lastRead = 0, lastMotion = 0, lastDraw = 0, lastShake = 0;
@@ -222,10 +225,19 @@ void takeReading() {
   if (t > maxT) maxT = t;
   bool out = (t < TEMP_MIN_C || t > TEMP_MAX_C);
 
-  char buf[48];
-  snprintf(buf, sizeof(buf), "%.2f;%d;%d", t, doorOpen ? 1 : 0, tilted ? 1 : 0);
+  // Read humidity from DHT22
+  float h = dht.readHumidity();
+  if (isnan(h)) {
+    h = -1.0f;  // sentinel: sensor not connected or read failed
+  } else {
+    lastHumidity = h;
+  }
+
+  char buf[64];
+  snprintf(buf, sizeof(buf), "%.2f;%d;%d;%.2f", t, doorOpen ? 1 : 0, tilted ? 1 : 0, h);
   logRecord('R', buf);
 
+  // Temperature excursion events
   if (out && !tempOut) {
     excursions++;
     snprintf(buf, sizeof(buf), "TEMP_OUT;%.2f", t);
@@ -236,6 +248,20 @@ void takeReading() {
     logRecord('E', buf);
   }
   tempOut = out;
+
+  // Humidity excursion events
+  if (h >= 0) {  // only check if sensor returned a valid value
+    bool hOut = (h < HUMID_MIN_RH || h > HUMID_MAX_RH);
+    if (hOut && !humidOut) {
+      snprintf(buf, sizeof(buf), "HUMID_OUT;%.2f", h);
+      logRecord('E', buf);
+      beep(400);
+    } else if (!hOut && humidOut) {
+      snprintf(buf, sizeof(buf), "HUMID_OK;%.2f", h);
+      logRecord('E', buf);
+    }
+    humidOut = hOut;
+  }
 }
 
 void handleDoor() {
@@ -444,8 +470,9 @@ void drawOled() {
 
   oled.setCursor(0, 12);
   if (std::isnan(lastTemp)) oled.print("T --.-C");
-  else oled.printf("T %.2fC", lastTemp);
-  oled.print(doorOpen ? "  DOOR OPEN" : "  door ok");
+  else oled.printf("T %.1fC", lastTemp);
+  if (std::isnan(lastHumidity)) oled.print(" H --%");
+  else oled.printf(" H %.0f%%", lastHumidity);
 
   oled.setCursor(0, 24);
   oled.printf("Log #%u  Pending %u", (unsigned)chain.seq, (unsigned)(chain.seq - syncedSeq));
@@ -456,6 +483,7 @@ void drawOled() {
 
   oled.setCursor(0, 48);
   if (tempOut) oled.print("ALERT: TEMP OUT");
+  else if (humidOut) oled.print("ALERT: HUMID OUT");
   else if (tilted) oled.print("ALERT: TILTED");
   else oled.print("Status: OK");
 
@@ -471,7 +499,7 @@ void drawOled() {
 }
 
 void updateLeds() {
-  bool alert = tempOut || doorOpen || tilted || (millis() < bannerUntil && bannerBad);
+  bool alert = tempOut || humidOut || doorOpen || tilted || (millis() < bannerUntil && bannerBad);
   digitalWrite(PIN_LED_RED, alert ? HIGH : LOW);
   digitalWrite(PIN_LED_GREEN, alert ? LOW : HIGH);
   if (buzzUntil && millis() > buzzUntil) {
@@ -542,6 +570,7 @@ void setup() {
   rfid.PCD_Init();
   ds.begin();
   ds.setResolution(10);
+  dht.begin();
   initMpu();
 
   prefs.begin("mt", false);
