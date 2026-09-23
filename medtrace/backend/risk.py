@@ -3,6 +3,8 @@ import os
 
 TEMP_MIN = float(os.getenv("TEMP_MIN_C", "2.0"))
 TEMP_MAX = float(os.getenv("TEMP_MAX_C", "8.0"))
+HUMID_MIN = float(os.getenv("HUMID_MIN_RH", "30.0"))
+HUMID_MAX = float(os.getenv("HUMID_MAX_RH", "60.0"))
 LONG_EXCURSION_S = int(os.getenv("LONG_EXCURSION_S", "120"))   # demo value; use 1800 for real use
 TRANSIT_LIMIT_S = int(os.getenv("TRANSIT_LIMIT_S", str(24 * 3600)))
 
@@ -17,13 +19,17 @@ def _f(x):
 def assess(rows: list) -> dict:
     """rows: list of dicts with keys seq, ts, kind, data (ordered by seq)."""
     out_secs = 0
+    humid_out_secs = 0
     prev_ts = None
     prev_out = False
+    prev_humid_out = False
+    prev_humid_ts = None
     door_opens = shakes = 0
     unauth = False
     latest = None
     handovers = []
     excursions = []
+    humid_excursions = []
     custodian = "origin"
 
     for r in rows:
@@ -31,12 +37,23 @@ def assess(rows: list) -> dict:
         parts = data.split(";")
         if kind == "R" and len(parts) >= 3:
             t = _f(parts[0])
+            # humidity is the 4th field (index 3), optional for backward compatibility
+            humidity = _f(parts[3]) if len(parts) >= 4 else None
+            # treat -1.00 as sensor error (sentinel from firmware)
+            if humidity is not None and humidity < 0:
+                humidity = None
             if t is not None:
                 out = t < TEMP_MIN or t > TEMP_MAX
                 if prev_out and prev_ts is not None:
                     out_secs += max(0, ts - prev_ts)
                 prev_out, prev_ts = out, ts
-                latest = {"temp": t, "door": parts[1] == "1", "tilt": parts[2] == "1", "ts": ts}
+                latest = {"temp": t, "door": parts[1] == "1", "tilt": parts[2] == "1",
+                          "humidity": humidity, "ts": ts}
+            if humidity is not None:
+                h_out = humidity < HUMID_MIN or humidity > HUMID_MAX
+                if prev_humid_out and prev_humid_ts is not None:
+                    humid_out_secs += max(0, ts - prev_humid_ts)
+                prev_humid_out, prev_humid_ts = h_out, ts
         elif kind == "E":
             name = parts[0]
             if name == "DOOR_OPEN":
@@ -48,6 +65,10 @@ def assess(rows: list) -> dict:
             elif name == "TEMP_OUT":
                 excursions.append({"seq": r["seq"], "ts": ts, "temp": _f(parts[1]) if len(parts) > 1 else None,
                                    "custodian": custodian})
+            elif name == "HUMID_OUT":
+                humid_excursions.append({"seq": r["seq"], "ts": ts,
+                                         "humidity": _f(parts[1]) if len(parts) > 1 else None,
+                                         "custodian": custodian})
         elif kind == "H" and len(parts) >= 6:
             handovers.append({"seq": r["seq"], "ts": ts, "sender": parts[0], "receiver": parts[1],
                               "min_temp": parts[2], "max_temp": parts[3],
@@ -61,6 +82,12 @@ def assess(rows: list) -> dict:
     elif out_secs > 0:
         score += 1
         reasons.append(f"temperature out of range for {out_secs}s (short)")
+    if humid_out_secs >= LONG_EXCURSION_S:
+        score += 2
+        reasons.append(f"humidity out of range for {humid_out_secs}s (long)")
+    elif humid_out_secs > 0:
+        score += 1
+        reasons.append(f"humidity out of range for {humid_out_secs}s (short)")
     if door_opens:
         score += 2
         reasons.append(f"door opened {door_opens} time(s)")
@@ -77,5 +104,8 @@ def assess(rows: list) -> dict:
         reasons.append("unauthorized card was used on the box")
 
     return {"level": level, "score": score, "reasons": reasons, "latest": latest,
-            "handovers": handovers, "excursions": excursions, "current_custodian": custodian,
-            "range": [TEMP_MIN, TEMP_MAX]}
+            "handovers": handovers, "excursions": excursions,
+            "humid_excursions": humid_excursions,
+            "current_custodian": custodian,
+            "range": [TEMP_MIN, TEMP_MAX],
+            "humid_range": [HUMID_MIN, HUMID_MAX]}

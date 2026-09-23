@@ -12,6 +12,7 @@ PRIVATE_KEY = os.getenv("PRIVATE_KEY")  # only needed for public testnets
 
 KIND_TEMP_OUT = 1
 KIND_UNAUTH = 2
+KIND_HUMID_OUT = 3
 
 
 def box_key(box_id: str) -> bytes:

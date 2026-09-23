@@ -44,12 +44,14 @@
   <div class="grid">
     <div class="card"><b>Risk</b><span class="big" id="risk">-</span><div class="muted" id="riskWhy"></div></div>
     <div class="card"><b>Temperature</b><span class="big" id="temp">-</span><div class="muted" id="range"></div></div>
+    <div class="card"><b>Humidity</b><span class="big" id="humid">-</span><div class="muted" id="humidRange"></div></div>
     <div class="card"><b>Door / tilt</b><span class="big" id="door">-</span></div>
     <div class="card"><b>Current custodian</b><span class="big" id="cust" style="font-size:18px">-</span></div>
   </div>
 
   <h2>Handovers</h2><table id="handovers"></table>
   <h2>Temperature excursions (with custodian at that time)</h2><table id="exc"></table>
+  <h2>Humidity excursions (with custodian at that time)</h2><table id="humidExc"></table>
   <h2>Latest records</h2><table id="recs"></table>
 </main>
 <script>
@@ -81,14 +83,17 @@ async function refresh() {
     $("risk").textContent = s.level; $("risk").className = "big " + s.level;
     $("riskWhy").textContent = s.reasons.join("; ") || "no problems found";
     $("range").textContent = `allowed ${s.range[0]} to ${s.range[1]} °C`;
+    $("humidRange").textContent = `allowed ${s.humid_range[0]} to ${s.humid_range[1]} %RH`;
     if (s.latest) {
       $("temp").textContent = s.latest.temp.toFixed(2) + " °C";
+      $("humid").textContent = s.latest.humidity !== null ? (s.latest.humidity.toFixed(1) + " %RH") : "N/A";
       $("door").textContent = (s.latest.door ? "OPEN" : "closed") + " / " + (s.latest.tilt ? "TILTED" : "flat");
     }
     $("cust").textContent = s.current_custodian;
     fill($("handovers"), ["Time", "From", "To", "Min °C", "Max °C", "Excursions", "Door events"],
       s.handovers.map((h) => [fmt(h.ts), h.sender, h.receiver, h.min_temp, h.max_temp, h.excursions, h.door_events]));
     fill($("exc"), ["Time", "Temp °C", "Custodian"], s.excursions.map((e) => [fmt(e.ts), e.temp, e.custodian]));
+    fill($("humidExc"), ["Time", "Humidity %RH", "Custodian"], (s.humid_excursions || []).map((e) => [fmt(e.ts), e.humidity, e.custodian]));
     const recs = await (await fetch(`/api/records/${b}?limit=25`)).json();
     fill($("recs"), ["#", "Time", "Type", "Data", "Hash", "Batch"],
       recs.map((r) => [r.seq, fmt(r.ts), r.kind, r.data, r.hash.slice(0, 12), r.batch]));

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 import db
 import risk
-from chain import KIND_TEMP_OUT, KIND_UNAUTH, Chain
+from chain import KIND_TEMP_OUT, KIND_UNAUTH, KIND_HUMID_OUT, Chain
 from logic import GENESIS, check_record, load_public_key, merkle_root, parse_payload, pubkey_bytes
 from verify import verify_box
 
@@ -131,6 +131,8 @@ def sync(req: SyncReq):
                     chain.record_handover(req.box, parts[0], parts[1], r["h"], info["ts"])
                 elif info["kind"] == "E" and parts[0] == "TEMP_OUT":
                     chain.flag_excursion(req.box, info["seq"], KIND_TEMP_OUT)
+                elif info["kind"] == "E" and parts[0] == "HUMID_OUT":
+                    chain.flag_excursion(req.box, info["seq"], KIND_HUMID_OUT)
                 elif info["kind"] == "E" and parts[0] == "UNAUTH_CARD":
                     chain.flag_excursion(req.box, info["seq"], KIND_UNAUTH)
             except Exception as e:

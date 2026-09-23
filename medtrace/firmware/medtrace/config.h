@@ -18,6 +18,10 @@ static const char* const AUTHORIZED_UIDS[] = {"04A1B2C3", "04D4E5F6", "04112233"
 #define TEMP_MIN_C 2.0f
 #define TEMP_MAX_C 8.0f
 
+// Humidity limits (% RH) - WHO recommends 30-60% for most pharmaceuticals
+#define HUMID_MIN_RH 30.0f
+#define HUMID_MAX_RH 60.0f
+
 // Timing
 #define READ_INTERVAL_MS     10000   // one signed reading every 10 s
 #define SYNC_INTERVAL_MS     15000   // try to upload every 15 s when WiFi is up
@@ -42,5 +46,6 @@ static const char* const AUTHORIZED_UIDS[] = {"04A1B2C3", "04D4E5F6", "04112233"
 #define PIN_BUZZER     25            // active buzzer: HIGH = sound
 #define PIN_LED_GREEN  32
 #define PIN_LED_RED    33
+#define PIN_DHT22      26            // DHT22 data pin (humidity + temperature)
 
 #define LOG_PATH "/log.jsonl"
